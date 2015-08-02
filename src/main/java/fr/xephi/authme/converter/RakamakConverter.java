@@ -29,10 +29,9 @@ public class RakamakConverter implements Converter {
     public DataSource database;
     public CommandSender sender;
 
-    public RakamakConverter(AuthMe instance, DataSource database,
-            CommandSender sender) {
+    public RakamakConverter(AuthMe instance, CommandSender sender) {
         this.instance = instance;
-        this.database = database;
+        this.database = instance.database;
         this.sender = sender;
     }
 
@@ -94,7 +93,7 @@ public class RakamakConverter implements Converter {
                 } else {
                     ip = "127.0.0.1";
                 }
-                PlayerAuth auth = new PlayerAuth(player, psw, ip, System.currentTimeMillis());
+                PlayerAuth auth = new PlayerAuth(player, psw, ip, System.currentTimeMillis(), player);
                 if (PasswordSecurity.userSalt.containsKey(player))
                     auth.setSalt(PasswordSecurity.userSalt.get(player));
                 database.saveAuth(auth);

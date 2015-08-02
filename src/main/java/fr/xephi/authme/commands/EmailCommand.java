@@ -1,9 +1,8 @@
 package fr.xephi.authme.commands;
 
 import java.security.NoSuchAlgorithmException;
-import java.util.Random;
+import java.util.Arrays;
 
-import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -13,7 +12,6 @@ import fr.xephi.authme.AuthMe;
 import fr.xephi.authme.ConsoleLogger;
 import fr.xephi.authme.cache.auth.PlayerAuth;
 import fr.xephi.authme.cache.auth.PlayerCache;
-import fr.xephi.authme.datasource.DataSource;
 import fr.xephi.authme.security.PasswordSecurity;
 import fr.xephi.authme.security.RandomString;
 import fr.xephi.authme.settings.Messages;
@@ -26,12 +24,10 @@ import fr.xephi.authme.settings.Settings;
 public class EmailCommand implements CommandExecutor {
 
     public AuthMe plugin;
-    private DataSource data;
     private Messages m = Messages.getInstance();
 
-    public EmailCommand(AuthMe plugin, DataSource data) {
+    public EmailCommand(AuthMe plugin) {
         this.plugin = plugin;
-        this.data = data;
     }
 
     @Override
@@ -62,7 +58,7 @@ public class EmailCommand implements CommandExecutor {
                 return true;
             }
             if (Settings.getmaxRegPerEmail > 0) {
-                if (!plugin.authmePermissible(sender, "authme.allow2accounts") && data.getAllAuthsByEmail(args[1]).size() >= Settings.getmaxRegPerEmail) {
+                if (!plugin.authmePermissible(sender, "authme.allow2accounts") && plugin.database.getAllAuthsByEmail(args[1]).size() >= Settings.getmaxRegPerEmail) {
                     m.send(player, "max_reg");
                     return true;
                 }
@@ -78,7 +74,7 @@ public class EmailCommand implements CommandExecutor {
                     return true;
                 }
                 auth.setEmail(args[1]);
-                if (!data.updateEmail(auth)) {
+                if (!plugin.database.updateEmail(auth)) {
                     m.send(player, "error");
                     return true;
                 }
@@ -88,7 +84,7 @@ public class EmailCommand implements CommandExecutor {
             } else if (PlayerCache.getInstance().isAuthenticated(name)) {
                 m.send(player, "email_confirm");
             } else {
-                if (!data.isAuthAvailable(name)) {
+                if (!plugin.database.isAuthAvailable(name)) {
                     m.send(player, "login_msg");
                 } else {
                     m.send(player, "reg_email_msg");
@@ -100,7 +96,7 @@ public class EmailCommand implements CommandExecutor {
                 return true;
             }
             if (Settings.getmaxRegPerEmail > 0) {
-                if (!plugin.authmePermissible(sender, "authme.allow2accounts") && data.getAllAuthsByEmail(args[2]).size() >= Settings.getmaxRegPerEmail) {
+                if (!plugin.authmePermissible(sender, "authme.allow2accounts") && plugin.database.getAllAuthsByEmail(args[2]).size() >= Settings.getmaxRegPerEmail) {
                     m.send(player, "max_reg");
                     return true;
                 }
@@ -120,17 +116,17 @@ public class EmailCommand implements CommandExecutor {
                     return true;
                 }
                 auth.setEmail(args[2]);
-                if (!data.updateEmail(auth)) {
+                if (!plugin.database.updateEmail(auth)) {
                     m.send(player, "error");
                     return true;
                 }
                 PlayerCache.getInstance().updatePlayer(auth);
                 m.send(player, "email_changed");
-                player.sendMessage(m.send("email_defined") + auth.getEmail());
+                player.sendMessage(Arrays.toString(m.send("email_defined")) + auth.getEmail());
             } else if (PlayerCache.getInstance().isAuthenticated(name)) {
                 m.send(player, "email_confirm");
             } else {
-                if (!data.isAuthAvailable(name)) {
+                if (!plugin.database.isAuthAvailable(name)) {
                     m.send(player, "login_msg");
                 } else {
                     m.send(player, "reg_email_msg");
@@ -146,7 +142,7 @@ public class EmailCommand implements CommandExecutor {
                 m.send(player, "error");
                 return true;
             }
-            if (data.isAuthAvailable(name)) {
+            if (plugin.database.isAuthAvailable(name)) {
                 if (PlayerCache.getInstance().isAuthenticated(name)) {
                     m.send(player, "logged_in");
                     return true;
@@ -158,8 +154,8 @@ public class EmailCommand implements CommandExecutor {
                     PlayerAuth auth = null;
                     if (PlayerCache.getInstance().isAuthenticated(name)) {
                         auth = PlayerCache.getInstance().getAuth(name);
-                    } else if (data.isAuthAvailable(name)) {
-                        auth = data.getAuth(name);
+                    } else if (plugin.database.isAuthAvailable(name)) {
+                        auth = plugin.database.getAuth(name);
                     } else {
                         m.send(player, "unknown_user");
                         return true;
@@ -173,21 +169,8 @@ public class EmailCommand implements CommandExecutor {
                         m.send(player, "email_invalid");
                         return true;
                     }
-                    final String finalhashnew = hashnew;
-                    final PlayerAuth finalauth = auth;
-                    if (data instanceof Thread) {
-                        finalauth.setHash(hashnew);
-                        data.updatePassword(auth);
-                    } else {
-                        Bukkit.getScheduler().runTaskAsynchronously(plugin, new Runnable() {
-
-                            @Override
-                            public void run() {
-                                finalauth.setHash(finalhashnew);
-                                data.updatePassword(finalauth);
-                            }
-                        });
-                    }
+                    auth.setHash(hashnew);
+                    plugin.database.updatePassword(auth);
                     plugin.mail.main(auth, thePass);
                     m.send(player, "email_send");
                 } catch (NoSuchAlgorithmException ex) {

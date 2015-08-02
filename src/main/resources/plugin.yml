@@ -1,10 +1,10 @@
 name: AuthMe
 author: Xephi59
 website: http://dev.bukkit.org/bukkit-plugins/authme-reloaded/
-description: AuthMe prevents people, which aren't logged in, from doing stuff like placing blocks, moving, typing commands or seeing the inventory of the current player.
+description: AuthMe prevents people, which aren't logged in, from doing stuff like placing blocks, moving, typing commands or seeing the inventory of the player.
 main: fr.xephi.authme.AuthMe
-version: 5.0-SNAPSHOT
-softdepend: [Vault, ChestShop, Spout, Multiverse-Core, Notifications, Citizens, CombatTag, Essentials, EssentialsSpawn]
+version: maven-version
+softdepend: [Vault, ChestShop, Multiverse-Core, Citizens, CombatTag, Essentials, EssentialsSpawn]
 commands:
     register:
         description: Register an account
@@ -22,10 +22,7 @@ commands:
         usage: /logout
     unregister:
         description: unregister your account
-        usage: /unregister password    
-    passpartu:
-        description: compare passpartu token
-        usage: /passpartu token          
+        usage: /unregister password         
     authme:
         description: AuthMe op commands
         usage: '/authme reload|register playername password|changepassword playername password|unregister playername|version'
@@ -48,9 +45,10 @@ permissions:
             authme.changepassword: true
             authme.logout: true
             authme.unregister: true
-            authme.passpartu: true
             authme.l: true
             authme.reg: true
+            authme.email: true
+            authme.captcha: true
     authme.admin.*:
          description: Gives access to all authme admin commands
          children:
@@ -69,6 +67,7 @@ permissions:
              authme.admin.getip: true
              authme.admin.converter: true
              authme.admin.resetposition: true
+             authme.admin.forcelogin: true
     authme.register:
         description: Register an account
         default: true
@@ -83,9 +82,6 @@ permissions:
         default: true
     authme.email:
         description: Email
-        default: true
-    authme.passpartu:
-        description: passpartu
         default: true
     authme.allow2accounts:
         description: allow more accounts for same ip
@@ -165,3 +161,9 @@ permissions:
     authme.admin.resetposition:
         description: Reset last position for a player
         default: op
+    authme.admin.forcelogin:
+        description: Force login for that player
+        default: op
+    authme.canbeforced:
+        description: Can this player be forced to login
+        default: true

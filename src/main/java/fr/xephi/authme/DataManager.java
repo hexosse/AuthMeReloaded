@@ -2,44 +2,54 @@ package fr.xephi.authme;
 
 import java.io.File;
 import java.util.List;
-
-import net.milkbowl.vault.Vault;
-import net.milkbowl.vault.permission.Permission;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
-import fr.xephi.authme.datasource.DataSource;
 import fr.xephi.authme.settings.Settings;
+import net.milkbowl.vault.permission.Permission;
 
-public class DataManager extends Thread {
+public class DataManager {
 
     public AuthMe plugin;
-    public DataSource database;
 
-    public DataManager(AuthMe plugin, DataSource database) {
+    public DataManager(AuthMe plugin) {
         this.plugin = plugin;
-        this.database = database;
     }
 
     public void run() {
     }
 
-    public OfflinePlayer getOfflinePlayer(String name) {
-        OfflinePlayer result = null;
-        try {
-            for (OfflinePlayer op : Bukkit.getOfflinePlayers())
-                if (op.getName().equalsIgnoreCase(name)) {
-                    result = op;
-                    break;
+    public synchronized OfflinePlayer getOfflinePlayer(final String name) {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<OfflinePlayer> result = executor.submit(new Callable<OfflinePlayer>() {
+
+            public synchronized OfflinePlayer call() throws Exception {
+                OfflinePlayer result = null;
+                try {
+                    for (OfflinePlayer op : Bukkit.getOfflinePlayers())
+                        if (op.getName().equalsIgnoreCase(name)) {
+                            result = op;
+                            break;
+                        }
+                } catch (Exception e) {
                 }
+                return result;
+            }
+        });
+        try {
+            return result.get();
         } catch (Exception e) {
+            return (null);
         }
-        return result;
     }
 
-    public void purgeAntiXray(List<String> cleared) {
+    public synchronized void purgeAntiXray(List<String> cleared) {
         int i = 0;
         for (String name : cleared) {
             try {
@@ -58,7 +68,7 @@ public class DataManager extends Thread {
         ConsoleLogger.info("AutoPurgeDatabase : Remove " + i + " AntiXRayData Files");
     }
 
-    public void purgeLimitedCreative(List<String> cleared) {
+    public synchronized void purgeLimitedCreative(List<String> cleared) {
         int i = 0;
         for (String name : cleared) {
             try {
@@ -87,7 +97,7 @@ public class DataManager extends Thread {
         ConsoleLogger.info("AutoPurgeDatabase : Remove " + i + " LimitedCreative Survival, Creative and Adventure files");
     }
 
-    public void purgeDat(List<String> cleared) {
+    public synchronized void purgeDat(List<String> cleared) {
         int i = 0;
         for (String name : cleared) {
             try {
@@ -99,6 +109,12 @@ public class DataManager extends Thread {
                 if (playerFile.exists()) {
                     playerFile.delete();
                     i++;
+                } else {
+                    playerFile = new File(plugin.getServer().getWorldContainer() + File.separator + Settings.defaultWorld + File.separator + "players" + File.separator + player.getUniqueId() + ".dat");
+                    if (playerFile.exists()) {
+                        playerFile.delete();
+                        i++;
+                    }
                 }
             } catch (Exception e) {
             }
@@ -106,6 +122,7 @@ public class DataManager extends Thread {
         ConsoleLogger.info("AutoPurgeDatabase : Remove " + i + " .dat Files");
     }
 
+    @SuppressWarnings("deprecation")
     public void purgeEssentials(List<String> cleared) {
         int i = 0;
         for (String name : cleared) {
@@ -114,6 +131,12 @@ public class DataManager extends Thread {
                 if (playerFile.exists()) {
                     playerFile.delete();
                     i++;
+                } else {
+                    playerFile = new File(plugin.ess.getDataFolder() + File.separator + "userdata" + File.separator + Bukkit.getOfflinePlayer(name).getUniqueId() + ".yml");
+                    if (playerFile.exists()) {
+                        playerFile.delete();
+                        i++;
+                    }
                 }
             } catch (Exception e) {
             }
@@ -121,11 +144,12 @@ public class DataManager extends Thread {
         ConsoleLogger.info("AutoPurgeDatabase : Remove " + i + " EssentialsFiles");
     }
 
-    public void purgePermissions(List<String> cleared, Permission permission) {
+    public synchronized void purgePermissions(List<String> cleared,
+            Permission permission) {
         int i = 0;
         for (String name : cleared) {
             try {
-                OfflinePlayer p = Bukkit.getOfflinePlayer(name);
+                OfflinePlayer p = this.getOfflinePlayer(name);
                 for (String group : permission.getPlayerGroups((Player) p)) {
                     permission.playerRemoveGroup(null, p, group);
                 }

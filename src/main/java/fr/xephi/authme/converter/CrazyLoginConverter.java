@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+
 import org.bukkit.command.CommandSender;
 
 import fr.xephi.authme.AuthMe;
@@ -23,10 +24,9 @@ public class CrazyLoginConverter implements Converter {
     public DataSource database;
     public CommandSender sender;
 
-    public CrazyLoginConverter(AuthMe instance, DataSource database,
-            CommandSender sender) {
+    public CrazyLoginConverter(AuthMe instance, CommandSender sender) {
         this.instance = instance;
-        this.database = database;
+        this.database = instance.database;
         this.sender = sender;
     }
 
@@ -61,7 +61,7 @@ public class CrazyLoginConverter implements Converter {
                     String psw = args[1];
                     try {
                         if (player != null && psw != null) {
-                            PlayerAuth auth = new PlayerAuth(player, psw, "127.0.0.1", System.currentTimeMillis());
+                            PlayerAuth auth = new PlayerAuth(player, psw, "127.0.0.1", System.currentTimeMillis(), player);
                             database.saveAuth(auth);
                         }
                     } catch (Exception e) {

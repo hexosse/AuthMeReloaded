@@ -3,8 +3,6 @@ package fr.xephi.authme.process.login;
 import java.util.Date;
 import java.util.List;
 
-import me.muizers.Notifications.Notification;
-
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
@@ -52,11 +50,11 @@ public class AsyncronousLogin {
     protected boolean needsCaptcha() {
         if (Settings.useCaptcha) {
             if (!plugin.captcha.containsKey(name)) {
-                plugin.captcha.put(name, 1);
+                plugin.captcha.putIfAbsent(name, 1);
             } else {
                 int i = plugin.captcha.get(name) + 1;
                 plugin.captcha.remove(name);
-                plugin.captcha.put(name, i);
+                plugin.captcha.putIfAbsent(name, i);
             }
             if (plugin.captcha.containsKey(name) && plugin.captcha.get(name) >= Settings.maxLoginTry) {
                 plugin.cap.put(name, rdm.nextString());
@@ -64,7 +62,8 @@ public class AsyncronousLogin {
                     player.sendMessage(s.replace("THE_CAPTCHA", plugin.cap.get(name)).replace("<theCaptcha>", plugin.cap.get(name)));
                 }
                 return true;
-            } else if (plugin.captcha.containsKey(name) && plugin.captcha.get(name) >= Settings.maxLoginTry) {
+            } else
+                if (plugin.captcha.containsKey(name) && plugin.captcha.get(name) >= Settings.maxLoginTry) {
                 try {
                     plugin.captcha.remove(name);
                     plugin.cap.remove(name);
@@ -87,14 +86,14 @@ public class AsyncronousLogin {
         if (!database.isAuthAvailable(name)) {
             m.send(player, "user_unknown");
             if (LimboCache.getInstance().hasLimboPlayer(name)) {
-            	LimboCache.getInstance().getLimboPlayer(name).getMessageTaskId().cancel();
+                LimboCache.getInstance().getLimboPlayer(name).getMessageTaskId().cancel();
                 String[] msg;
                 if (Settings.emailRegistration) {
                     msg = m.send("reg_email_msg");
                 } else {
                     msg = m.send("reg_msg");
                 }
-                BukkitTask msgT = Bukkit.getScheduler().runTask(plugin, new MessageTask(plugin, name, msg, Settings.getWarnMessageInterval));
+                BukkitTask msgT = Bukkit.getScheduler().runTaskAsynchronously(plugin, new MessageTask(plugin, name, msg, Settings.getWarnMessageInterval));
                 LimboCache.getInstance().getLimboPlayer(name).setMessageTaskId(msgT);
             }
             return null;
@@ -134,7 +133,7 @@ public class AsyncronousLogin {
                 return;
             }
         if (passwordVerified && player.isOnline()) {
-            PlayerAuth auth = new PlayerAuth(name, hash, getIP(), new Date().getTime(), email);
+            PlayerAuth auth = new PlayerAuth(name, hash, getIP(), new Date().getTime(), email, realName);
             database.updateSession(auth);
 
             if (Settings.useCaptcha) {
@@ -147,16 +146,18 @@ public class AsyncronousLogin {
             }
 
             player.setNoDamageTicks(0);
-            m.send(player, "login");
+            if (!forceLogin)
+                m.send(player, "login");
 
             displayOtherAccounts(auth, player);
 
-            if (!Settings.noConsoleSpam)
-                ConsoleLogger.info(player.getName() + " logged in!");
-
-            if (plugin.notifications != null) {
-                plugin.notifications.showNotification(new Notification("[AuthMe] " + player.getName() + " logged in!"));
+            if (Settings.recallEmail) {
+                if (email == null || email.isEmpty() || email.equalsIgnoreCase("your@email.com"))
+                    m.send(player, "add_email");
             }
+
+            if (!Settings.noConsoleSpam)
+                ConsoleLogger.info(realName + " logged in!");
 
             // makes player isLoggedin via API
             PlayerCache.getInstance().addPlayer(auth);
@@ -169,13 +170,15 @@ public class AsyncronousLogin {
             // processed in other order.
             ProcessSyncronousPlayerLogin syncronousPlayerLogin = new ProcessSyncronousPlayerLogin(player, plugin, database);
             if (syncronousPlayerLogin.getLimbo() != null) {
-            	syncronousPlayerLogin.getLimbo().getTimeoutTaskId().cancel();
-            	syncronousPlayerLogin.getLimbo().getMessageTaskId().cancel();
+                if (syncronousPlayerLogin.getLimbo().getTimeoutTaskId() != null)
+                    syncronousPlayerLogin.getLimbo().getTimeoutTaskId().cancel();
+                if (syncronousPlayerLogin.getLimbo().getMessageTaskId() != null)
+                    syncronousPlayerLogin.getLimbo().getMessageTaskId().cancel();
             }
             Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, syncronousPlayerLogin);
         } else if (player.isOnline()) {
             if (!Settings.noConsoleSpam)
-                ConsoleLogger.info(player.getName() + " used the wrong password");
+                ConsoleLogger.info(realName + " used the wrong password");
             if (Settings.isKickOnWrongPasswordEnabled) {
                 Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, new Runnable() {
 
@@ -206,7 +209,7 @@ public class AsyncronousLogin {
         List<String> auths = this.database.getAllAuthsByName(auth);
         // List<String> uuidlist =
         // plugin.otherAccounts.getAllPlayersByUUID(player.getUniqueId());
-        if (auths.isEmpty() || auths == null) {
+        if (auths.isEmpty()) {
             return;
         }
         if (auths.size() == 1) {

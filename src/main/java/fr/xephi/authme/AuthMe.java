@@ -3,22 +3,20 @@ package fr.xephi.authme;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 import java.util.zip.GZIPInputStream;
-
-import me.muizers.Notifications.Notifications;
-import net.citizensnpcs.Citizens;
-import net.milkbowl.vault.permission.Permission;
 
 import org.apache.logging.log4j.LogManager;
 import org.bukkit.Bukkit;
@@ -30,12 +28,15 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
+import org.mcstats.Metrics;
 
 import com.earth2me.essentials.Essentials;
 import com.maxmind.geoip.LookupService;
 import com.onarandombox.MultiverseCore.MultiverseCore;
 
 import fr.xephi.authme.api.API;
+import fr.xephi.authme.api.NewAPI;
 import fr.xephi.authme.cache.auth.PlayerAuth;
 import fr.xephi.authme.cache.auth.PlayerCache;
 import fr.xephi.authme.cache.backup.FileCache;
@@ -48,20 +49,21 @@ import fr.xephi.authme.commands.ConverterCommand;
 import fr.xephi.authme.commands.EmailCommand;
 import fr.xephi.authme.commands.LoginCommand;
 import fr.xephi.authme.commands.LogoutCommand;
-import fr.xephi.authme.commands.PasspartuCommand;
 import fr.xephi.authme.commands.RegisterCommand;
 import fr.xephi.authme.commands.UnregisterCommand;
+import fr.xephi.authme.converter.Converter;
+import fr.xephi.authme.converter.ForceFlatToSqlite;
 import fr.xephi.authme.datasource.CacheDataSource;
 import fr.xephi.authme.datasource.DataSource;
-import fr.xephi.authme.datasource.FlatFileThread;
-import fr.xephi.authme.datasource.MySQLThread;
-import fr.xephi.authme.datasource.SQLiteThread;
+import fr.xephi.authme.datasource.DatabaseCalls;
+import fr.xephi.authme.datasource.FlatFile;
+import fr.xephi.authme.datasource.MySQL;
+import fr.xephi.authme.datasource.SQLite;
 import fr.xephi.authme.listener.AuthMeBlockListener;
 import fr.xephi.authme.listener.AuthMeChestShopListener;
 import fr.xephi.authme.listener.AuthMeEntityListener;
 import fr.xephi.authme.listener.AuthMePlayerListener;
 import fr.xephi.authme.listener.AuthMeServerListener;
-import fr.xephi.authme.listener.AuthMeSpoutListener;
 import fr.xephi.authme.plugin.manager.BungeeCordMessage;
 import fr.xephi.authme.plugin.manager.CitizensCommunicator;
 import fr.xephi.authme.plugin.manager.CombatTagComunicator;
@@ -69,16 +71,15 @@ import fr.xephi.authme.plugin.manager.EssSpawn;
 import fr.xephi.authme.process.Management;
 import fr.xephi.authme.settings.Messages;
 import fr.xephi.authme.settings.OtherAccounts;
-import fr.xephi.authme.settings.PlayersLogs;
 import fr.xephi.authme.settings.Settings;
 import fr.xephi.authme.settings.Spawn;
+import net.milkbowl.vault.permission.Permission;
 
 public class AuthMe extends JavaPlugin {
 
     public DataSource database = null;
     private Settings settings;
     private Messages m;
-    public PlayersLogs pllog;
     public OtherAccounts otherAccounts;
     public static Server server;
     public static Logger authmeLogger = Logger.getLogger("AuthMe");
@@ -87,29 +88,36 @@ public class AuthMe extends JavaPlugin {
     private Utils utils = Utils.getInstance();
     private FileCache playerBackup = new FileCache(this);
     public CitizensCommunicator citizens;
+    public boolean isCitizensActive = false;
     public SendMailSSL mail = null;
-    public int CitizensVersion = 0;
-    public int CombatTag = 0;
+    public boolean CombatTag = false;
     public double ChestShop = 0;
     public boolean BungeeCord = false;
     public Essentials ess;
-    public Notifications notifications;
-    public API api;
+    public NewAPI api;
     public Management management;
-    public HashMap<String, Integer> captcha = new HashMap<String, Integer>();
-    public HashMap<String, String> cap = new HashMap<String, String>();
-    public HashMap<String, String> realIp = new HashMap<String, String>();
+    public ConcurrentHashMap<String, Integer> captcha = new ConcurrentHashMap<String, Integer>();
+    public ConcurrentHashMap<String, String> cap = new ConcurrentHashMap<String, String>();
+    public ConcurrentHashMap<String, String> realIp = new ConcurrentHashMap<String, String>();
     public MultiverseCore multiverse = null;
     public Location essentialsSpawn;
-    public Thread databaseThread = null;
     public LookupService ls = null;
     public boolean antibotMod = false;
     public boolean delayedAntiBot = true;
     protected static String vgUrl = "http://monitor-1.verygames.net/api/?action=ipclean-real-ip&out=raw&ip=%IP%&port=%PORT%";
     public DataManager dataManager;
+    public ConcurrentHashMap<String, BukkitTask> sessions = new ConcurrentHashMap<String, BukkitTask>();
 
     public Settings getSettings() {
         return settings;
+    }
+
+    public DataSource getAuthMeDatabase() {
+        return database;
+    }
+
+    public void setAuthMeDatabase(DataSource database) {
+        this.database = database;
     }
 
     @Override
@@ -120,11 +128,19 @@ public class AuthMe extends JavaPlugin {
 
         try {
             settings = new Settings(this);
-            settings.loadConfigOptions();
         } catch (Exception e) {
-            ConsoleLogger.showError("Can't load config file... Something goes wrong, for prevent security issues, server will shutdown");
+            ConsoleLogger.showError("Can't load the configuration file... Something went wrong, to avoid security issues the server will shutdown!");
             this.getServer().shutdown();
             return;
+        }
+
+        try {
+            Metrics metrics = new Metrics(this);
+            metrics.start();
+            ConsoleLogger.info("Metrics started successfully!");
+        } catch (IOException e) {
+            // Failed to submit the metrics data
+            ConsoleLogger.showError("Can't start Metrics! The plugin will work anyway...");
         }
 
         citizens = new CitizensCommunicator(this);
@@ -141,8 +157,6 @@ public class AuthMe extends JavaPlugin {
 
         m = Messages.getInstance();
 
-        pllog = PlayersLogs.getInstance();
-
         otherAccounts = OtherAccounts.getInstance();
 
         server = getServer();
@@ -152,18 +166,19 @@ public class AuthMe extends JavaPlugin {
 
         // Set Console Filter
         if (Settings.removePassword) {
-            this.getLogger().setFilter(new ConsoleFilter());
-            Bukkit.getLogger().setFilter(new ConsoleFilter());
-            Logger.getLogger("Minecraft").setFilter(new ConsoleFilter());
-            authmeLogger.setFilter(new ConsoleFilter());
+            ConsoleFilter filter = new ConsoleFilter();
+            this.getLogger().setFilter(filter);
+            Bukkit.getLogger().setFilter(filter);
+            Logger.getLogger("Minecraft").setFilter(filter);
+            authmeLogger.setFilter(filter);
             // Set Log4J Filter
             try {
                 Class.forName("org.apache.logging.log4j.core.Filter");
                 setLog4JFilter();
             } catch (ClassNotFoundException e) {
-                ConsoleLogger.info("You're using Minecraft 1.6.x or older, Log4J support is disabled");
+                ConsoleLogger.info("You're using Minecraft 1.6.x or older, Log4J support will be disabled");
             } catch (NoClassDefFoundError e) {
-                ConsoleLogger.info("You're using Minecraft 1.6.x or older, Log4J support is disabled");
+                ConsoleLogger.info("You're using Minecraft 1.6.x or older, Log4J support will be disabled");
             }
         }
 
@@ -172,16 +187,16 @@ public class AuthMe extends JavaPlugin {
             mail = new SendMailSSL(this);
 
         // Check Citizens Version
-        citizensVersion();
+        checkCitizens();
 
         // Check Combat Tag Version
-        combatTag();
-
-        // Check Notifications
-        checkNotifications();
+        checkCombatTag();
 
         // Check Multiverse
         checkMultiverse();
+
+        // Check PerWorldInventories Version
+        checkPerWorldInventories();
 
         // Check ChestShop
         checkChestShop();
@@ -195,105 +210,82 @@ public class AuthMe extends JavaPlugin {
         if (Settings.isBackupActivated && Settings.isBackupOnStart) {
             Boolean Backup = new PerformBackup(this).DoBackup();
             if (Backup)
-                ConsoleLogger.info("Backup Complete");
-            else ConsoleLogger.showError("Error while making Backup");
+                ConsoleLogger.info("Backup performed correctly");
+            else ConsoleLogger.showError("Error while performing the backup!");
         }
 
-        /*
-         * Backend MYSQL - FILE - SQLITE
-         */
-        switch (Settings.getDataSource) {
-            case FILE:
-                FlatFileThread fileThread = new FlatFileThread();
-                fileThread.start();
-                database = fileThread;
-                databaseThread = fileThread;
-                final int a = database.getAccountsRegistered();
-                if (a >= 1000) {
-                    ConsoleLogger.showError("YOU'RE USING FILE DATABASE WITH " + a + "+ ACCOUNTS, FOR BETTER PERFORMANCES, PLEASE USE MYSQL!!");
-                }
-                break;
-            case MYSQL:
-                MySQLThread sqlThread = new MySQLThread();
-                sqlThread.start();
-                database = sqlThread;
-                databaseThread = sqlThread;
-                break;
-            case SQLITE:
-                SQLiteThread sqliteThread = new SQLiteThread();
-                sqliteThread.start();
-                database = sqliteThread;
-                databaseThread = sqliteThread;
-                final int b = database.getAccountsRegistered();
-                if (b >= 2000) {
-                    ConsoleLogger.showError("YOU'RE USING SQLITE DATABASE WITH " + b + "+ ACCOUNTS, FOR BETTER PERFORMANCES, PLEASE USE MYSQL!!");
-                }
-                break;
-        }
+        setupDatabase();
 
-        if (Settings.isCachingEnabled) {
-            database = new CacheDataSource(this, database);
-            if (database instanceof CacheDataSource)
-                ((CacheDataSource) database).start();
-        }
-
-        dataManager = new DataManager(this, database);
-        dataManager.start();
+        dataManager = new DataManager(this);
 
         // Setup API
-        api = new API(this, database);
+        api = new NewAPI(this);
+        new API(this);
 
         // Setup Management
-        management = new Management(database, this);
-        management.start();
+        management = new Management(this);
 
         PluginManager pm = getServer().getPluginManager();
         if (Settings.bungee) {
             Bukkit.getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
             Bukkit.getMessenger().registerIncomingPluginChannel(this, "BungeeCord", new BungeeCordMessage(this));
         }
-        if (pm.isPluginEnabled("Spout")) {
-            pm.registerEvents(new AuthMeSpoutListener(database), this);
-            ConsoleLogger.info("Successfully hook with Spout!");
-        }
-        pm.registerEvents(new AuthMePlayerListener(this, database), this);
-        pm.registerEvents(new AuthMeBlockListener(database, this), this);
-        pm.registerEvents(new AuthMeEntityListener(database, this), this);
+
+        pm.registerEvents(new AuthMePlayerListener(this), this);
+        pm.registerEvents(new AuthMeBlockListener(this), this);
+        pm.registerEvents(new AuthMeEntityListener(this), this);
         pm.registerEvents(new AuthMeServerListener(this), this);
         if (ChestShop != 0) {
-            pm.registerEvents(new AuthMeChestShopListener(database, this), this);
-            ConsoleLogger.info("Successfully hook with ChestShop!");
+            pm.registerEvents(new AuthMeChestShopListener(this), this);
+            ConsoleLogger.info("Hooked successfully with ChestShop!");
         }
 
-        this.getCommand("authme").setExecutor(new AdminCommand(this, database));
+        this.getCommand("authme").setExecutor(new AdminCommand(this));
         this.getCommand("register").setExecutor(new RegisterCommand(this));
         this.getCommand("login").setExecutor(new LoginCommand(this));
-        this.getCommand("changepassword").setExecutor(new ChangePasswordCommand(database, this));
-        this.getCommand("logout").setExecutor(new LogoutCommand(this, database));
-        this.getCommand("unregister").setExecutor(new UnregisterCommand(this, database));
-        this.getCommand("passpartu").setExecutor(new PasspartuCommand(this));
-        this.getCommand("email").setExecutor(new EmailCommand(this, database));
+        this.getCommand("changepassword").setExecutor(new ChangePasswordCommand(this));
+        this.getCommand("logout").setExecutor(new LogoutCommand(this));
+        this.getCommand("unregister").setExecutor(new UnregisterCommand(this));
+        this.getCommand("email").setExecutor(new EmailCommand(this));
         this.getCommand("captcha").setExecutor(new CaptchaCommand(this));
-        this.getCommand("converter").setExecutor(new ConverterCommand(this, database));
+        this.getCommand("converter").setExecutor(new ConverterCommand(this));
 
         if (!Settings.isForceSingleSessionEnabled) {
-            ConsoleLogger.showError("ATTENTION by disabling ForceSingleSession, your server protection is set to low");
+            ConsoleLogger.showError("WARNING!!! By disabling ForceSingleSession, your server protection is inadequate!");
         }
 
-        if (Settings.reloadSupport)
+        if (Settings.getSessionTimeout == 0 && Settings.isSessionsEnabled) {
+            ConsoleLogger.showError("WARNING!!! You set session timeout to 0, this may cause security issues!");
+        }
+
+        if (Settings.reloadSupport) {
             try {
-                onReload();
-                if (server.getOnlinePlayers().size() < 1) {
+                int playersOnline = 0;
+                try {
+                    if (Bukkit.class.getMethod("getOnlinePlayers", new Class<?>[0]).getReturnType() == Collection.class)
+                        playersOnline = ((Collection<?>) Bukkit.class.getMethod("getOnlinePlayers", new Class<?>[0]).invoke(null, new Object[0])).size();
+                    else playersOnline = ((Player[]) Bukkit.class.getMethod("getOnlinePlayers", new Class<?>[0]).invoke(null, new Object[0])).length;
+                } catch (Exception ex) {
+                }
+                if (playersOnline < 1) {
                     try {
                         database.purgeLogged();
                     } catch (NullPointerException npe) {
                     }
+                } else {
+                    for (PlayerAuth auth : database.getLoggedPlayers()) {
+                        if (auth == null)
+                            continue;
+                        auth.setLastLogin(new Date().getTime());
+                        database.updateSession(auth);
+                        PlayerCache.getInstance().addPlayer(auth);
+                    }
                 }
-            } catch (NullPointerException ex) {
+            } catch (Exception ex) {
             }
+        }
 
-        if (Settings.usePurge)
-            autoPurge();
+        autoPurge();
 
         // Download GeoIp.dat file
         downloadGeoIp();
@@ -302,10 +294,9 @@ public class AuthMe extends JavaPlugin {
         recallEmail();
 
         // Sponsor message
-        ConsoleLogger.info("[SPONSOR] AuthMe is sponsored and hook perfectly with server hosting VERYGAMES, rent your server for only 1.99$/months");
-        ConsoleLogger.info("[SPONSOR] Look Minecraft and other offers on www.verygames.net ! ");
+        ConsoleLogger.info("AuthMe hooks perfectly with the VERYGAMES server hosting!");
 
-        ConsoleLogger.info("Authme " + this.getDescription().getVersion() + " enabled");
+        ConsoleLogger.info("AuthMe " + this.getDescription().getVersion() + " correctly enabled!");
     }
 
     private void setLog4JFilter() {
@@ -324,9 +315,9 @@ public class AuthMe extends JavaPlugin {
             RegisteredServiceProvider<Permission> permissionProvider = getServer().getServicesManager().getRegistration(net.milkbowl.vault.permission.Permission.class);
             if (permissionProvider != null) {
                 permission = permissionProvider.getProvider();
-                ConsoleLogger.info("Vault plugin detected, hook with " + permission.getName() + " system");
+                ConsoleLogger.info("Vault detected, hooking with the " + permission.getName() + " permissions system...");
             } else {
-                ConsoleLogger.showError("Vault plugin is detected but not the permissions plugin!");
+                ConsoleLogger.showError("Vault detected, but I can't find any permissions plugin to hook with!");
             }
         } else {
             permission = null;
@@ -346,7 +337,7 @@ public class AuthMe extends JavaPlugin {
                     if (version >= 3.50) {
                         this.ChestShop = version;
                     } else {
-                        ConsoleLogger.showError("Please Update your ChestShop version!");
+                        ConsoleLogger.showError("Please Update your ChestShop version! Bugs may occur!");
                     }
                 } catch (NumberFormatException nfe) {
                     try {
@@ -354,7 +345,7 @@ public class AuthMe extends JavaPlugin {
                         if (version >= 3.50) {
                             this.ChestShop = version;
                         } else {
-                            ConsoleLogger.showError("Please Update your ChestShop version!");
+                            ConsoleLogger.showError("Please Update your ChestShop version! Bugs may occur!");
                         }
                     } catch (NumberFormatException nfee) {
                     }
@@ -366,6 +357,27 @@ public class AuthMe extends JavaPlugin {
         }
     }
 
+    public void checkPerWorldInventories() {
+        if (this.getServer().getPluginManager().getPlugin("PerWorldInventories") != null && this.getServer().getPluginManager().getPlugin("PerWorldInventories").isEnabled()) {
+            try {
+                String ver = Bukkit.getServer().getPluginManager().getPlugin("PerWorldInventories").getDescription().getVersion();
+                try {
+                    double version = Double.valueOf(ver.split(" ")[0]);
+                    if (version < 1.57)
+                        ConsoleLogger.showError("Please Update your PerWorldInventories version! INVENTORY WIPE may occur!");
+                } catch (NumberFormatException nfe) {
+                    try {
+                        double version = Double.valueOf(ver.split("t")[0]);
+                        if (version < 1.57)
+                            ConsoleLogger.showError("Please Update your PerWorldInventories version! INVENTORY WIPE may occur!");
+                    } catch (NumberFormatException nfee) {
+                    }
+                }
+            } catch (Exception e) {
+            }
+        }
+    }
+
     public void checkMultiverse() {
         if (!Settings.multiverse) {
             multiverse = null;
@@ -374,7 +386,7 @@ public class AuthMe extends JavaPlugin {
         if (this.getServer().getPluginManager().getPlugin("Multiverse-Core") != null && this.getServer().getPluginManager().getPlugin("Multiverse-Core").isEnabled()) {
             try {
                 multiverse = (MultiverseCore) this.getServer().getPluginManager().getPlugin("Multiverse-Core");
-                ConsoleLogger.info("Hook with Multiverse-Core for SpawnLocations");
+                ConsoleLogger.info("Hooked correctly with Multiverse-Core");
             } catch (NullPointerException npe) {
                 multiverse = null;
             } catch (ClassCastException cce) {
@@ -391,7 +403,7 @@ public class AuthMe extends JavaPlugin {
         if (this.getServer().getPluginManager().getPlugin("Essentials") != null && this.getServer().getPluginManager().getPlugin("Essentials").isEnabled()) {
             try {
                 ess = (Essentials) this.getServer().getPluginManager().getPlugin("Essentials");
-                ConsoleLogger.info("Hook with Essentials plugin");
+                ConsoleLogger.info("Hooked correctly with Essentials");
             } catch (NullPointerException npe) {
                 ess = null;
             } catch (ClassCastException cce) {
@@ -405,111 +417,71 @@ public class AuthMe extends JavaPlugin {
         if (this.getServer().getPluginManager().getPlugin("EssentialsSpawn") != null && this.getServer().getPluginManager().getPlugin("EssentialsSpawn").isEnabled()) {
             try {
                 essentialsSpawn = new EssSpawn().getLocation();
-                ConsoleLogger.info("Hook with EssentialsSpawn plugin");
+                ConsoleLogger.info("Hooked correctly with EssentialsSpawn");
             } catch (Exception e) {
                 essentialsSpawn = null;
-                ConsoleLogger.showError("Error while reading /plugins/Essentials/spawn.yml file ");
+                ConsoleLogger.showError("Can't read the /plugins/Essentials/spawn.yml file!");
             }
         } else {
             essentialsSpawn = null;
         }
     }
 
-    public void checkNotifications() {
-        if (!Settings.notifications) {
-            this.notifications = null;
-            return;
-        }
-        if (this.getServer().getPluginManager().getPlugin("Notifications") != null && this.getServer().getPluginManager().getPlugin("Notifications").isEnabled()) {
-            this.notifications = (Notifications) this.getServer().getPluginManager().getPlugin("Notifications");
-            ConsoleLogger.info("Successfully hook with Notifications");
-        } else {
-            this.notifications = null;
-        }
-    }
-
-    public void combatTag() {
+    public void checkCombatTag() {
         if (this.getServer().getPluginManager().getPlugin("CombatTag") != null && this.getServer().getPluginManager().getPlugin("CombatTag").isEnabled()) {
-            this.CombatTag = 1;
+            this.CombatTag = true;
         } else {
-            this.CombatTag = 0;
+            this.CombatTag = false;
         }
     }
 
-    public void citizensVersion() {
-        if (this.getServer().getPluginManager().getPlugin("Citizens") != null && this.getServer().getPluginManager().getPlugin("Citizens").isEnabled()) {
-            Citizens cit = (Citizens) this.getServer().getPluginManager().getPlugin("Citizens");
-            String ver = cit.getDescription().getVersion();
-            String[] args = ver.split("\\.");
-            if (args[0].contains("1")) {
-                this.CitizensVersion = 1;
-            } else {
-                this.CitizensVersion = 2;
-            }
-        } else {
-            this.CitizensVersion = 0;
-        }
+    public void checkCitizens() {
+        if (this.getServer().getPluginManager().getPlugin("Citizens") != null && this.getServer().getPluginManager().getPlugin("Citizens").isEnabled())
+            this.isCitizensActive = true;
+        else this.isCitizensActive = false;
     }
 
     @Override
     public void onDisable() {
-        if (Bukkit.getOnlinePlayers().size() != 0)
+        int playersOnline = 0;
+        try {
+            if (Bukkit.class.getMethod("getOnlinePlayers", new Class<?>[0]).getReturnType() == Collection.class)
+                playersOnline = ((Collection<?>) Bukkit.class.getMethod("getOnlinePlayers", new Class<?>[0]).invoke(null, new Object[0])).size();
+            else playersOnline = ((Player[]) Bukkit.class.getMethod("getOnlinePlayers", new Class<?>[0]).invoke(null, new Object[0])).length;
+        } catch (NoSuchMethodException ex) {
+        } // can never happen
+        catch (InvocationTargetException ex) {
+        } // can also never happen
+        catch (IllegalAccessException ex) {
+        } // can still never happen
+        if (playersOnline != 0)
             for (Player player : Bukkit.getOnlinePlayers()) {
                 this.savePlayer(player);
             }
 
         if (database != null) {
-            database.close();
-        }
-
-        if (databaseThread != null) {
-            if (databaseThread.isAlive())
-                databaseThread.interrupt();
-        }
-
-        if (dataManager != null) {
-            if (dataManager.isAlive())
-                dataManager.interrupt();
+            try {
+                database.close();
+            } catch (Exception e) {
+            }
         }
 
         if (Settings.isBackupActivated && Settings.isBackupOnStop) {
             Boolean Backup = new PerformBackup(this).DoBackup();
             if (Backup)
-                ConsoleLogger.info("Backup Complete");
-            else ConsoleLogger.showError("Error while making Backup");
+                ConsoleLogger.info("Backup performed correctly.");
+            else ConsoleLogger.showError("Error while performing the backup!");
         }
-        ConsoleLogger.info("Authme " + this.getDescription().getVersion() + " disabled");
-    }
-
-    private void onReload() {
-        try {
-            if (Bukkit.getServer().getOnlinePlayers() != null) {
-                for (Player player : Bukkit.getServer().getOnlinePlayers()) {
-                    if (database.isLogged(player.getName().toLowerCase())) {
-                        String name = player.getName().toLowerCase();
-                        PlayerAuth pAuth = database.getAuth(name);
-                        if (pAuth == null)
-                            break;
-                        PlayerAuth auth = new PlayerAuth(name, pAuth.getHash(), pAuth.getIp(), new Date().getTime(), pAuth.getEmail());
-                        database.updateSession(auth);
-                        PlayerCache.getInstance().addPlayer(auth);
-                    }
-                }
-            }
-            return;
-        } catch (NullPointerException ex) {
-            return;
-        }
+        ConsoleLogger.info("AuthMe " + this.getDescription().getVersion() + " disabled!");
     }
 
     public static AuthMe getInstance() {
         return authme;
     }
 
-    public void savePlayer(Player player) throws IllegalStateException,
-            NullPointerException {
+    public void savePlayer(Player player) {
         try {
-            if ((citizens.isNPC(player, this)) || (Utils.getInstance().isUnrestricted(player)) || (CombatTagComunicator.isNPC(player))) {
+            if ((citizens.isNPC(player)) || (Utils.getInstance().isUnrestricted(player)) || (CombatTagComunicator.isNPC(player))) {
                 return;
             }
         } catch (Exception e) {
@@ -517,7 +489,7 @@ public class AuthMe extends JavaPlugin {
         try {
             String name = player.getName().toLowerCase();
             if (PlayerCache.getInstance().isAuthenticated(name) && !player.isDead() && Settings.isSaveQuitLocationEnabled) {
-                final PlayerAuth auth = new PlayerAuth(player.getName().toLowerCase(), player.getLocation().getX(), player.getLocation().getY(), player.getLocation().getZ(), player.getWorld().getName());
+                final PlayerAuth auth = new PlayerAuth(player.getName().toLowerCase(), player.getLocation().getX(), player.getLocation().getY(), player.getLocation().getZ(), player.getWorld().getName(), player.getName());
                 database.updateQuitLoc(auth);
             }
             if (LimboCache.getInstance().hasLimboPlayer(name)) {
@@ -596,15 +568,19 @@ public class AuthMe extends JavaPlugin {
             return;
         if (cleared.isEmpty())
             return;
-        ConsoleLogger.info("AutoPurgeDatabase : " + cleared.size() + " accounts removed.");
+        ConsoleLogger.info("AutoPurging the Database: " + cleared.size() + " accounts removed!");
         if (Settings.purgeEssentialsFile && this.ess != null)
-            dataManager.purgeEssentials(cleared);
+            dataManager.purgeEssentials(cleared); // name to UUID convertion
+                                                  // needed with latest versions
         if (Settings.purgePlayerDat)
-            dataManager.purgeDat(cleared);
+            dataManager.purgeDat(cleared); // name to UUID convertion needed
+                                           // with latest versions of MC
         if (Settings.purgeLimitedCreative)
             dataManager.purgeLimitedCreative(cleared);
         if (Settings.purgeAntiXray)
-            dataManager.purgeAntiXray(cleared);
+            dataManager.purgeAntiXray(cleared); // IDK if it uses UUID or
+                                                // names... (Actually it purges
+                                                // only names!)
         if (Settings.purgePermissions)
             dataManager.purgePermissions(cleared, permission);
     }
@@ -656,11 +632,11 @@ public class AuthMe extends JavaPlugin {
             return Spawn.getInstance().getFirstSpawn();
         if (Spawn.getInstance().getSpawn() != null)
             return Spawn.getInstance().getSpawn();
-        return null;
+        return player.getWorld().getSpawnLocation();
     }
 
     public void downloadGeoIp() {
-        ConsoleLogger.info("[LICENSE] This product includes GeoLite data created by MaxMind, available from http://www.maxmind.com");
+        ConsoleLogger.info("[LICENSE] This product uses data from the GeoLite API created by MaxMind, available at http://www.maxmind.com");
         File file = new File(getDataFolder(), "GeoIP.dat");
         if (!file.exists()) {
             try {
@@ -738,10 +714,21 @@ public class AuthMe extends JavaPlugin {
     }
 
     public String replaceAllInfos(String message, Player player) {
+        int playersOnline = 0;
+        try {
+            if (Bukkit.class.getMethod("getOnlinePlayers", new Class<?>[0]).getReturnType() == Collection.class)
+                playersOnline = ((Collection<?>) Bukkit.class.getMethod("getOnlinePlayers", new Class<?>[0]).invoke(null, new Object[0])).size();
+            else playersOnline = ((Player[]) Bukkit.class.getMethod("getOnlinePlayers", new Class<?>[0]).invoke(null, new Object[0])).length;
+        } catch (NoSuchMethodException ex) {
+        } // can never happen
+        catch (InvocationTargetException ex) {
+        } // can also never happen
+        catch (IllegalAccessException ex) {
+        } // can still never happen
         try {
             message = message.replace("&", "\u00a7");
             message = message.replace("{PLAYER}", player.getName());
-            message = message.replace("{ONLINE}", "" + this.getServer().getOnlinePlayers().size());
+            message = message.replace("{ONLINE}", "" + playersOnline);
             message = message.replace("{MAXPLAYERS}", "" + this.getServer().getMaxPlayers());
             message = message.replace("{IP}", getIP(player));
             message = message.replace("{LOGINS}", "" + PlayerCache.getInstance().getLogged());
@@ -795,6 +782,7 @@ public class AuthMe extends JavaPlugin {
      * @param Player
      *            player
      */
+    @Deprecated
     public String getVeryGamesIP(Player player) {
         String realIP = player.getAddress().getAddress().getHostAddress();
         String sUrl = vgUrl;
@@ -810,5 +798,42 @@ public class AuthMe extends JavaPlugin {
         } catch (Exception e) {
         }
         return realIP;
+    }
+
+    public void setupDatabase() {
+        /*
+         * Backend MYSQL - FILE - SQLITE
+         */
+        switch (Settings.getDataSource) {
+            case FILE:
+                database = new FlatFile();
+                break;
+            case MYSQL:
+                database = new MySQL();
+                break;
+            case SQLITE:
+                database = new SQLite();
+                final int b = database.getAccountsRegistered();
+                if (b >= 4000)
+                    ConsoleLogger.showError("YOU'RE USING THE SQLITE DATABASE WITH " + b + "+ ACCOUNTS, FOR BETTER PERFORMANCES, PLEASE UPGRADE TO MYSQL!!");
+                break;
+        }
+
+        if (Settings.isCachingEnabled) {
+            database = new CacheDataSource(this, database);
+        }
+
+        database = new DatabaseCalls(database);
+
+        if (Settings.getDataSource == DataSource.DataSourceType.FILE) {
+            Converter converter = new ForceFlatToSqlite(database, this);
+            try {
+                Thread t = new Thread(converter);
+                t.start();
+            } catch (Exception e) {
+            }
+            ConsoleLogger.showError("FlatFile backend has been detected and is now deprecated, next time server starts up, it will be changed to SQLite... Conversion will be started Asynchronously, it will not drop down your performance !");
+            ConsoleLogger.showError("If you want to keep FlatFile, set file again into config at backend, but this message and this change will appear again at the next restart");
+        }
     }
 }

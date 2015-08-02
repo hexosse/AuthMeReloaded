@@ -1,7 +1,5 @@
 package fr.xephi.authme.process.register;
 
-import me.muizers.Notifications.Notification;
-
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -18,6 +16,7 @@ import fr.xephi.authme.cache.limbo.LimboPlayer;
 import fr.xephi.authme.events.AuthMeTeleportEvent;
 import fr.xephi.authme.events.LoginEvent;
 import fr.xephi.authme.events.RegisterTeleportEvent;
+import fr.xephi.authme.events.RestoreInventoryEvent;
 import fr.xephi.authme.settings.Messages;
 import fr.xephi.authme.settings.Settings;
 import fr.xephi.authme.task.MessageTask;
@@ -67,13 +66,12 @@ public class ProcessSyncronousPasswordRegister implements Runnable {
         int interval = Settings.getWarnMessageInterval;
         BukkitScheduler sched = plugin.getServer().getScheduler();
         if (delay != 0) {
-            BukkitTask id = sched.runTaskLater(plugin, new TimeoutTask(plugin, name), delay);
+            BukkitTask id = sched.runTaskLaterAsynchronously(plugin, new TimeoutTask(plugin, name, player), delay);
             LimboCache.getInstance().getLimboPlayer(name).setTimeoutTaskId(id);
         }
-        BukkitTask msgT = sched.runTask(plugin, new MessageTask(plugin, name, m.send("login_msg"), interval));
+        BukkitTask msgT = sched.runTaskAsynchronously(plugin, new MessageTask(plugin, name, m.send("login_msg"), interval));
         LimboCache.getInstance().getLimboPlayer(name).setMessageTaskId(msgT);
         try {
-            plugin.pllog.removePlayer(name);
             if (player.isInsideVehicle())
                 player.getVehicle().eject();
         } catch (NullPointerException npe) {
@@ -94,6 +92,14 @@ public class ProcessSyncronousPasswordRegister implements Runnable {
                         tpEvent.getTo().getWorld().getChunkAt(tpEvent.getTo()).load();
                     }
                     player.teleport(tpEvent.getTo());
+                }
+            }
+            if (Settings.protectInventoryBeforeLogInEnabled && limbo.getInventory() != null && limbo.getArmour() != null) {
+                RestoreInventoryEvent event = new RestoreInventoryEvent(player, limbo.getInventory(), limbo.getArmour());
+                Bukkit.getPluginManager().callEvent(event);
+                if (!event.isCancelled() && event.getArmor() != null && event.getInventory() != null) {
+                    player.getInventory().setContents(event.getInventory());
+                    player.getInventory().setArmorContents(event.getArmor());
                 }
             }
             limbo.getTimeoutTaskId().cancel();
@@ -119,9 +125,6 @@ public class ProcessSyncronousPasswordRegister implements Runnable {
 
         if (!Settings.noConsoleSpam)
             ConsoleLogger.info(player.getName() + " registered " + plugin.getIP(player));
-        if (plugin.notifications != null) {
-            plugin.notifications.showNotification(new Notification("[AuthMe] " + player.getName() + " has registered!"));
-        }
 
         // Kick Player after Registration is enabled, kick the player
         if (Settings.forceRegKick) {

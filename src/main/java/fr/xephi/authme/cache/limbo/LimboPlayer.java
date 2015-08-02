@@ -83,6 +83,8 @@ public class LimboPlayer {
     }
 
     public void setTimeoutTaskId(BukkitTask i) {
+        if (this.timeoutTaskId != null)
+            this.timeoutTaskId.cancel();
         this.timeoutTaskId = i;
     }
 
@@ -91,6 +93,8 @@ public class LimboPlayer {
     }
 
     public void setMessageTaskId(BukkitTask messageTaskId) {
+        if (this.messageTaskId != null)
+            this.messageTaskId.cancel();
         this.messageTaskId = messageTaskId;
     }
 

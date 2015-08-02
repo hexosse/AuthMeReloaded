@@ -1,16 +1,17 @@
 package fr.xephi.authme.api;
 
 import java.security.NoSuchAlgorithmException;
+
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
+
 import fr.xephi.authme.AuthMe;
 import fr.xephi.authme.Utils;
 import fr.xephi.authme.cache.auth.PlayerAuth;
 import fr.xephi.authme.cache.auth.PlayerCache;
-import fr.xephi.authme.datasource.DataSource;
 import fr.xephi.authme.plugin.manager.CombatTagComunicator;
 import fr.xephi.authme.security.PasswordSecurity;
 import fr.xephi.authme.settings.Settings;
@@ -19,11 +20,10 @@ public class API {
 
     public static final String newline = System.getProperty("line.separator");
     public static AuthMe instance;
-    public static DataSource database;
 
-    public API(AuthMe instance, DataSource database) {
+    @Deprecated
+    public API(AuthMe instance) {
         API.instance = instance;
-        API.database = database;
     }
 
     /**
@@ -31,14 +31,19 @@ public class API {
      * 
      * @return AuthMe instance
      */
+    @Deprecated
     public static AuthMe hookAuthMe() {
+        if (instance != null)
+            return instance;
         Plugin plugin = Bukkit.getServer().getPluginManager().getPlugin("AuthMe");
         if (plugin == null || !(plugin instanceof AuthMe)) {
             return null;
         }
-        return (AuthMe) plugin;
+        instance = (AuthMe) plugin;
+        return instance;
     }
 
+    @Deprecated
     public AuthMe getPlugin() {
         return instance;
     }
@@ -48,6 +53,7 @@ public class API {
      * @param player
      * @return true if player is authenticate
      */
+    @Deprecated
     public static boolean isAuthenticated(Player player) {
         return PlayerCache.getInstance().isAuthenticated(player.getName());
     }
@@ -59,7 +65,7 @@ public class API {
      */
     @Deprecated
     public boolean isaNPC(Player player) {
-        if (instance.getCitizensCommunicator().isNPC(player, instance))
+        if (instance.getCitizensCommunicator().isNPC(player))
             return true;
         return CombatTagComunicator.isNPC(player);
     }
@@ -69,8 +75,9 @@ public class API {
      * @param player
      * @return true if player is a npc
      */
+    @Deprecated
     public boolean isNPC(Player player) {
-        if (instance.getCitizensCommunicator().isNPC(player, instance))
+        if (instance.getCitizensCommunicator().isNPC(player))
             return true;
         return CombatTagComunicator.isNPC(player);
     }
@@ -80,10 +87,12 @@ public class API {
      * @param player
      * @return true if the player is unrestricted
      */
+    @Deprecated
     public static boolean isUnrestricted(Player player) {
         return Utils.getInstance().isUnrestricted(player);
     }
 
+    @Deprecated
     public static Location getLastLocation(Player player) {
         try {
             PlayerAuth auth = PlayerCache.getInstance().getAuth(player.getName().toLowerCase());
@@ -100,6 +109,7 @@ public class API {
         }
     }
 
+    @Deprecated
     public static void setPlayerInventory(Player player, ItemStack[] content,
             ItemStack[] armor) {
         try {
@@ -114,9 +124,10 @@ public class API {
      * @param playerName
      * @return true if player is registered
      */
+    @Deprecated
     public static boolean isRegistered(String playerName) {
         String player = playerName.toLowerCase();
-        return database.isAuthAvailable(player);
+        return instance.database.isAuthAvailable(player);
     }
 
     /**
@@ -124,12 +135,13 @@ public class API {
      *            playerName, String passwordToCheck
      * @return true if the password is correct , false else
      */
+    @Deprecated
     public static boolean checkPassword(String playerName,
             String passwordToCheck) {
         if (!isRegistered(playerName))
             return false;
         String player = playerName.toLowerCase();
-        PlayerAuth auth = database.getAuth(player);
+        PlayerAuth auth = instance.database.getAuth(player);
         try {
             return PasswordSecurity.comparePasswordWithHash(passwordToCheck, auth.getHash(), playerName);
         } catch (NoSuchAlgorithmException e) {
@@ -144,6 +156,7 @@ public class API {
      *            playerName, String password
      * @return true if the player is register correctly
      */
+    @Deprecated
     public static boolean registerPlayer(String playerName, String password) {
         try {
             String name = playerName.toLowerCase();
@@ -152,7 +165,7 @@ public class API {
                 return false;
             }
             PlayerAuth auth = new PlayerAuth(name, hash, "198.18.0.1", 0, "your@email.com");
-            if (!database.saveAuth(auth)) {
+            if (!instance.database.saveAuth(auth)) {
                 return false;
             }
             return true;
@@ -167,6 +180,7 @@ public class API {
      * @param Player
      *            player
      */
+    @Deprecated
     public static void forceLogin(Player player) {
         instance.management.performLogin(player, "dontneed", true);
     }

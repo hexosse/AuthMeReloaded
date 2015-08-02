@@ -2,8 +2,6 @@ package fr.xephi.authme.commands;
 
 import java.security.NoSuchAlgorithmException;
 
-import me.muizers.Notifications.Notification;
-
 import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -22,7 +20,6 @@ import fr.xephi.authme.Utils.groupType;
 import fr.xephi.authme.cache.auth.PlayerCache;
 import fr.xephi.authme.cache.backup.FileCache;
 import fr.xephi.authme.cache.limbo.LimboCache;
-import fr.xephi.authme.datasource.DataSource;
 import fr.xephi.authme.events.SpawnTeleportEvent;
 import fr.xephi.authme.security.PasswordSecurity;
 import fr.xephi.authme.settings.Messages;
@@ -34,12 +31,10 @@ public class UnregisterCommand implements CommandExecutor {
 
     private Messages m = Messages.getInstance();
     public AuthMe plugin;
-    private DataSource database;
     private FileCache playerCache;
 
-    public UnregisterCommand(AuthMe plugin, DataSource database) {
+    public UnregisterCommand(AuthMe plugin) {
         this.plugin = plugin;
-        this.database = database;
         this.playerCache = new FileCache(plugin);
     }
 
@@ -69,7 +64,7 @@ public class UnregisterCommand implements CommandExecutor {
         }
         try {
             if (PasswordSecurity.comparePasswordWithHash(args[0], PlayerCache.getInstance().getAuth(name).getHash(), player.getName())) {
-                if (!database.removeAuth(name)) {
+                if (!plugin.database.removeAuth(name)) {
                     player.sendMessage("error");
                     return true;
                 }
@@ -93,15 +88,12 @@ public class UnregisterCommand implements CommandExecutor {
                     int interval = Settings.getWarnMessageInterval;
                     BukkitScheduler sched = sender.getServer().getScheduler();
                     if (delay != 0) {
-                        BukkitTask id = sched.runTaskLater(plugin, new TimeoutTask(plugin, name), delay);
+                        BukkitTask id = sched.runTaskLaterAsynchronously(plugin, new TimeoutTask(plugin, name, player), delay);
                         LimboCache.getInstance().getLimboPlayer(name).setTimeoutTaskId(id);
                     }
-                    LimboCache.getInstance().getLimboPlayer(name).setMessageTaskId(sched.runTask(plugin, new MessageTask(plugin, name, m.send("reg_msg"), interval)));
+                    LimboCache.getInstance().getLimboPlayer(name).setMessageTaskId(sched.runTaskAsynchronously(plugin, new MessageTask(plugin, name, m.send("reg_msg"), interval)));
                     m.send(player, "unregistered");
                     ConsoleLogger.info(player.getDisplayName() + " unregistered himself");
-                    if (plugin.notifications != null) {
-                        plugin.notifications.showNotification(new Notification("[AuthMe] " + player.getName() + " unregistered himself!"));
-                    }
                     return true;
                 }
                 if (!Settings.unRegisteredGroup.isEmpty()) {
@@ -117,9 +109,6 @@ public class UnregisterCommand implements CommandExecutor {
                     player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, Settings.getRegistrationTimeout * 20, 2));
                 m.send(player, "unregistered");
                 ConsoleLogger.info(player.getDisplayName() + " unregistered himself");
-                if (plugin.notifications != null) {
-                    plugin.notifications.showNotification(new Notification("[AuthMe] " + player.getName() + " unregistered himself!"));
-                }
                 if (Settings.isTeleportToSpawnEnabled && !Settings.noTeleport) {
                     Location spawn = plugin.getSpawnLocation(player);
                     SpawnTeleportEvent tpEvent = new SpawnTeleportEvent(player, player.getLocation(), spawn, false);

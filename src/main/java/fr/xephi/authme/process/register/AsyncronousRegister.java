@@ -41,31 +41,45 @@ public class AsyncronousRegister {
     }
 
     protected void preRegister() {
+        String lowpass = password.toLowerCase();
         if (PlayerCache.getInstance().isAuthenticated(name)) {
             m.send(player, "logged_in");
             allowRegister = false;
         }
 
-        if (!Settings.isRegistrationEnabled) {
+        else if (!Settings.isRegistrationEnabled) {
             m.send(player, "reg_disabled");
             allowRegister = false;
         }
 
-        String lowpass = password.toLowerCase();
-        if ((lowpass.contains("delete") || lowpass.contains("where") || lowpass.contains("insert") || lowpass.contains("modify") || lowpass.contains("from") || lowpass.contains("select") || lowpass.contains(";") || lowpass.contains("null")) || !lowpass.matches(Settings.getPassRegex)) {
+        else if (lowpass.contains("delete") || lowpass.contains("where") || lowpass.contains("insert") || lowpass.contains("modify") || lowpass.contains("from") || lowpass.contains("select") || lowpass.contains(";") || lowpass.contains("null") || !lowpass.matches(Settings.getPassRegex)) {
             m.send(player, "password_error");
             allowRegister = false;
         }
 
-        if (database.isAuthAvailable(name)) {
-            m.send(player, "user_regged");
-            if (plugin.pllog.getStringList("players").contains(name)) {
-                plugin.pllog.getStringList("players").remove(name);
-            }
+        else if (lowpass.equalsIgnoreCase(player.getName())) {
+            m.send(player, "password_error_nick");
             allowRegister = false;
         }
 
-        if (Settings.getmaxRegPerIp > 0) {
+        else if (password.length() < Settings.getPasswordMinLen || password.length() > Settings.passwordMaxLength) {
+            m.send(player, "pass_len");
+            allowRegister = false;
+        }
+
+        else if (!Settings.unsafePasswords.isEmpty()) {
+            if (Settings.unsafePasswords.contains(password.toLowerCase())) {
+                m.send(player, "password_error_unsafe");
+                allowRegister = false;
+            }
+        }
+
+        else if (database.isAuthAvailable(name)) {
+            m.send(player, "user_regged");
+            allowRegister = false;
+        }
+
+        else if (Settings.getmaxRegPerIp > 0) {
             if (!plugin.authmePermissible(player, "authme.allow2accounts") && database.getAllAuthsByIp(getIp()).size() >= Settings.getmaxRegPerIp && !getIp().equalsIgnoreCase("127.0.0.1") && !getIp().equalsIgnoreCase("localhost")) {
                 m.send(player, "max_reg");
                 allowRegister = false;
@@ -78,7 +92,7 @@ public class AsyncronousRegister {
         preRegister();
         if (!allowRegister)
             return;
-        if (!email.isEmpty() && email != "") {
+        if (!email.isEmpty() && !email.equals("")) {
             if (Settings.getmaxRegPerEmail > 0) {
                 if (!plugin.authmePermissible(player, "authme.allow2accounts") && database.getAllAuthsByEmail(email).size() >= Settings.getmaxRegPerEmail) {
                     m.send(player, "max_reg");
@@ -101,7 +115,7 @@ public class AsyncronousRegister {
         PlayerAuth auth = null;
         try {
             final String hashnew = PasswordSecurity.getHash(Settings.getPasswordHash, password, name);
-            auth = new PlayerAuth(name, hashnew, getIp(), 0, (int) player.getLocation().getX(), (int) player.getLocation().getY(), (int) player.getLocation().getZ(), player.getLocation().getWorld().getName(), email);
+            auth = new PlayerAuth(name, hashnew, getIp(), 0, (int) player.getLocation().getX(), (int) player.getLocation().getY(), (int) player.getLocation().getZ(), player.getLocation().getWorld().getName(), email, player.getName());
         } catch (NoSuchAlgorithmException e) {
             ConsoleLogger.showError(e.getMessage());
             m.send(player, "error");
@@ -120,16 +134,6 @@ public class AsyncronousRegister {
     }
 
     protected void passwordRegister() {
-        if (password.length() < Settings.getPasswordMinLen || password.length() > Settings.passwordMaxLength) {
-            m.send(player, "pass_len");
-            return;
-        }
-        if (!Settings.unsafePasswords.isEmpty()) {
-            if (Settings.unsafePasswords.contains(password.toLowerCase())) {
-                m.send(player, "password_error");
-                return;
-            }
-        }
         PlayerAuth auth = null;
         String hash = "";
         try {
@@ -140,9 +144,9 @@ public class AsyncronousRegister {
             return;
         }
         if (Settings.getMySQLColumnSalt.isEmpty() && !PasswordSecurity.userSalt.containsKey(name)) {
-            auth = new PlayerAuth(name, hash, getIp(), new Date().getTime(), "your@email.com");
+            auth = new PlayerAuth(name, hash, getIp(), new Date().getTime(), "your@email.com", player.getName());
         } else {
-            auth = new PlayerAuth(name, hash, PasswordSecurity.userSalt.get(name), getIp(), new Date().getTime());
+            auth = new PlayerAuth(name, hash, PasswordSecurity.userSalt.get(name), getIp(), new Date().getTime(), player.getName());
         }
         if (!database.saveAuth(auth)) {
             m.send(player, "error");

@@ -14,7 +14,6 @@
 package fr.xephi.authme.security.crypts;
 
 import java.io.UnsupportedEncodingException;
-
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 
@@ -141,7 +140,7 @@ public class BCRYPT implements EncryptionMethod {
      * @return the decoded value of x
      */
     private static byte char64(char x) {
-        if ((int) x < 0 || (int) x > index_64.length)
+        if ((int) x > index_64.length)
             return -1;
         return index_64[(int) x];
     }
@@ -396,7 +395,7 @@ public class BCRYPT implements EncryptionMethod {
             off = 3;
         else {
             minor = salt.charAt(2);
-            if (minor != 'a' || salt.charAt(3) != '$')
+            if (minor < 'a' || minor > 'z' || salt.charAt(3) != '$')
                 throw new IllegalArgumentException("Invalid salt revision");
             off = 4;
         }

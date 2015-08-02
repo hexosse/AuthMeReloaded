@@ -1,6 +1,6 @@
 package fr.xephi.authme.cache.limbo;
 
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
@@ -17,14 +17,14 @@ import fr.xephi.authme.settings.Settings;
 
 public class LimboCache {
 
-    private static LimboCache singleton = null;
-    public HashMap<String, LimboPlayer> cache;
+    private volatile static LimboCache singleton = null;
+    public ConcurrentHashMap<String, LimboPlayer> cache;
     private FileCache playerData;
     public AuthMe plugin;
 
     private LimboCache(AuthMe plugin) {
         this.plugin = plugin;
-        this.cache = new HashMap<String, LimboPlayer>();
+        this.cache = new ConcurrentHashMap<String, LimboPlayer>();
         this.playerData = new FileCache(plugin);
     }
 
@@ -39,7 +39,7 @@ public class LimboCache {
         boolean flying = false;
 
         if (playerData.doesCacheExist(player)) {
-            StoreInventoryEvent event = new StoreInventoryEvent(player, playerData);
+            final StoreInventoryEvent event = new StoreInventoryEvent(player, playerData);
             Bukkit.getServer().getPluginManager().callEvent(event);
             if (!event.isCancelled() && event.getInventory() != null && event.getArmor() != null) {
                 inv = event.getInventory();
@@ -52,9 +52,8 @@ public class LimboCache {
                 playerGroup = playerData.readCache(player).getGroup();
                 operator = playerData.readCache(player).getOperator();
                 flying = playerData.readCache(player).isFlying();
-            } catch (Exception e)
-            {
-            	ConsoleLogger.showError("Some error on reading cache of " + name);
+            } catch (Exception e) {
+                ConsoleLogger.showError("Some error on reading cache of " + name);
             }
         } else {
             StoreInventoryEvent event = new StoreInventoryEvent(player);
@@ -90,6 +89,9 @@ public class LimboCache {
                     player.getInventory().clear();
                     player.sendMessage("Your inventory has been cleaned!");
                 }
+            }
+            if (gameMode == GameMode.CREATIVE) {
+                flying = false;
             }
             gameMode = GameMode.SURVIVAL;
         }

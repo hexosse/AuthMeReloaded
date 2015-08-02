@@ -5,8 +5,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityInteractEvent;
 import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
@@ -15,25 +15,19 @@ import org.bukkit.event.entity.FoodLevelChangeEvent;
 import fr.xephi.authme.AuthMe;
 import fr.xephi.authme.Utils;
 import fr.xephi.authme.cache.auth.PlayerCache;
-import fr.xephi.authme.datasource.DataSource;
 import fr.xephi.authme.plugin.manager.CombatTagComunicator;
 import fr.xephi.authme.settings.Settings;
 
 public class AuthMeEntityListener implements Listener {
 
-    private DataSource data;
     public AuthMe instance;
 
-    public AuthMeEntityListener(DataSource data, AuthMe instance) {
-        this.data = data;
+    public AuthMeEntityListener(AuthMe instance) {
         this.instance = instance;
     }
 
-    @EventHandler (priority = EventPriority.LOWEST)
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.LOWEST)
     public void onEntityDamage(EntityDamageEvent event) {
-        if (event.isCancelled()) {
-            return;
-        }
         Entity entity = event.getEntity();
 
         if (!(entity instanceof Player)) {
@@ -44,7 +38,7 @@ public class AuthMeEntityListener implements Listener {
             return;
         }
 
-        if (instance.citizens.isNPC(entity, instance))
+        if (instance.citizens.isNPC(entity))
             return;
 
         Player player = (Player) entity;
@@ -57,7 +51,7 @@ public class AuthMeEntityListener implements Listener {
             return;
         }
 
-        if (!data.isAuthAvailable(name)) {
+        if (!instance.database.isAuthAvailable(name)) {
             if (!Settings.isForcedRegistrationEnabled) {
                 return;
             }
@@ -67,11 +61,8 @@ public class AuthMeEntityListener implements Listener {
         event.setCancelled(true);
     }
 
-    @EventHandler (priority = EventPriority.LOWEST)
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.LOWEST)
     public void onEntityTarget(EntityTargetEvent event) {
-        if (event.isCancelled()) {
-            return;
-        }
         if (event.getTarget() == null)
             return;
         Entity entity = event.getTarget();
@@ -79,7 +70,7 @@ public class AuthMeEntityListener implements Listener {
             return;
         }
 
-        if (instance.citizens.isNPC(entity, instance))
+        if (instance.citizens.isNPC(entity))
             return;
 
         Player player = (Player) entity;
@@ -89,7 +80,7 @@ public class AuthMeEntityListener implements Listener {
             return;
         }
 
-        if (!data.isAuthAvailable(name)) {
+        if (!instance.database.isAuthAvailable(name)) {
             if (!Settings.isForcedRegistrationEnabled) {
                 return;
             }
@@ -97,47 +88,39 @@ public class AuthMeEntityListener implements Listener {
         event.setTarget(null);
         event.setCancelled(true);
     }
-    
-    @EventHandler(priority = EventPriority.LOWEST)
-	public void onDmg(EntityDamageByEntityEvent event) {
-		if (event.isCancelled()) {
+
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.LOWEST)
+    public void onDmg(EntityDamageByEntityEvent event) {
+        Entity entity = event.getDamager();
+
+        if (entity == null || !(entity instanceof Player)) {
             return;
         }
-		
-		Entity entity = event.getDamager();
-		
-		if (entity == null || !(entity instanceof Player)) {
-            return;
-        }
-		
-		Player player = (Player) entity;
-		String name = player.getName().toLowerCase();
-		
+
+        Player player = (Player) entity;
+        String name = player.getName().toLowerCase();
+
         if (PlayerCache.getInstance().isAuthenticated(name)) {
             return;
         }
 
-        if (!data.isAuthAvailable(name)) {
+        if (!instance.database.isAuthAvailable(name)) {
             if (!Settings.isForcedRegistrationEnabled) {
                 return;
             }
         }
-        
+
         event.setCancelled(true);
-	}
+    }
 
-    @EventHandler (priority = EventPriority.LOWEST)
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.LOWEST)
     public void onFoodLevelChange(FoodLevelChangeEvent event) {
-        if (event.isCancelled()) {
-            return;
-        }
-
         Entity entity = event.getEntity();
         if (!(entity instanceof Player)) {
             return;
         }
 
-        if (instance.citizens.isNPC(entity, instance))
+        if (instance.citizens.isNPC(entity))
             return;
 
         Player player = (Player) entity;
@@ -147,7 +130,7 @@ public class AuthMeEntityListener implements Listener {
             return;
         }
 
-        if (!data.isAuthAvailable(name)) {
+        if (!instance.database.isAuthAvailable(name)) {
             if (!Settings.isForcedRegistrationEnabled) {
                 return;
             }
@@ -157,18 +140,14 @@ public class AuthMeEntityListener implements Listener {
 
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.LOWEST)
     public void EntityRegainHealthEvent(EntityRegainHealthEvent event) {
-        if (event.isCancelled()) {
-            return;
-        }
-
         Entity entity = event.getEntity();
         if (!(entity instanceof Player)) {
             return;
         }
 
-        if (instance.citizens.isNPC(entity, instance))
+        if (instance.citizens.isNPC(entity))
             return;
 
         Player player = (Player) entity;
@@ -178,7 +157,7 @@ public class AuthMeEntityListener implements Listener {
             return;
         }
 
-        if (!data.isAuthAvailable(name)) {
+        if (!instance.database.isAuthAvailable(name)) {
             if (!Settings.isForcedRegistrationEnabled) {
                 return;
             }
@@ -188,12 +167,8 @@ public class AuthMeEntityListener implements Listener {
         event.setCancelled(true);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.HIGHEST)
     public void onEntityInteract(EntityInteractEvent event) {
-        if (event.isCancelled() || event == null) {
-            return;
-        }
-
         if (!(event.getEntity() instanceof Player)) {
             return;
         }
@@ -205,14 +180,14 @@ public class AuthMeEntityListener implements Listener {
             return;
         }
 
-        if (instance.citizens.isNPC(player, instance))
+        if (instance.citizens.isNPC(player))
             return;
 
         if (PlayerCache.getInstance().isAuthenticated(player.getName())) {
             return;
         }
 
-        if (!data.isAuthAvailable(name)) {
+        if (!instance.database.isAuthAvailable(name)) {
             if (!Settings.isForcedRegistrationEnabled) {
                 return;
             }
@@ -220,12 +195,8 @@ public class AuthMeEntityListener implements Listener {
         event.setCancelled(true);
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.LOWEST)
     public void onLowestEntityInteract(EntityInteractEvent event) {
-        if (event.isCancelled() || event == null) {
-            return;
-        }
-
         if (!(event.getEntity() instanceof Player)) {
             return;
         }
@@ -237,14 +208,14 @@ public class AuthMeEntityListener implements Listener {
             return;
         }
 
-        if (instance.citizens.isNPC(player, instance))
+        if (instance.citizens.isNPC(player))
             return;
 
         if (PlayerCache.getInstance().isAuthenticated(player.getName())) {
             return;
         }
 
-        if (!data.isAuthAvailable(name)) {
+        if (!instance.database.isAuthAvailable(name)) {
             if (!Settings.isForcedRegistrationEnabled) {
                 return;
             }
